@@ -1,193 +1,158 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>互動音樂機台 - 數位紀念歌單</title>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-    <style>
-        body { background-color: #0f172a; color: #f8fafc; font-family: "Microsoft JhengHei", sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
-        .header { text-align: center; margin-bottom: 20px; }
-        .header h1 { color: #f1c40f; margin-bottom: 5px; }
-        .header p { color: #94a3b8; font-size: 0.9rem; margin-top: 0; }
-        
-        .track-list { width: 100%; max-width: 500px; display: flex; flex-direction: column; gap: 12px; }
-        .track-card { background-color: #1e293b; padding: 15px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border-left: 4px solid #3b82f6; transition: 0.2s;}
-        .track-card:hover { transform: translateY(-2px); border-left: 4px solid #f1c40f; }
-        
-        .track-info .time { font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;}
-        .track-info .melody { font-size: 1.1rem; font-weight: bold; letter-spacing: 2px;}
-        
-        .btn-group { display: flex; gap: 8px; align-items: center; }
-        .play-btn { background-color: #3b82f6; color: white; border: none; border-radius: 50%; width: 40px; height: 40px; font-size: 1.2rem; cursor: pointer; display: flex; justify-content: center; align-items: center; }
-        .play-btn:active { background-color: #2563eb; transform: scale(0.95); }
-        
-        .download-btn { background-color: #10b981; color: white; border: none; border-radius: 8px; padding: 8px 12px; font-size: 0.85rem; cursor: pointer; font-weight: bold; transition: 0.2s; }
-        .download-btn:hover { background-color: #059669; }
-        .download-btn.recording { background-color: #ef4444; animation: blink 1s infinite; }
-        
-        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-    </style>
-</head>
-<body>
+<script>
+    // === ☁️ Firebase 完整雲端設定 ===
+    const firebaseConfig = {
+        apiKey: "AIzaSyCaVWMPnGqNcjWVk0JV_-oaSeGcBTpYgHg",
+        authDomain: "id-music-box.firebaseapp.com",
+        projectId: "id-music-box",
+        storageBucket: "id-music-box.firebasestorage.app",
+        messagingSenderId: "426399592540",
+        appId: "1:426399592540:web:349751d6a8360cc7b23699",
+        measurementId: "G-4JBWVTHHLD",
+        databaseURL: "https://id-music-box-default-rtdb.firebaseio.com/"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
 
-    <div class="header">
-        <h1>🎵 近期演奏紀錄</h1>
-        <p>點擊播放聆聽，或點擊下載保存專屬你的音樂紀念品</p>
-    </div>
+    const trackList = document.getElementById('trackList');
+    let currentAudioPlayInterval = null;
+    
+    // 初始化 Web Audio API 環境
+    let audioCtx = null;
+    let audioDestination = null;
+    let mediaRecorder = null;
+    let recordedChunks = [];
+    let isAudioUnlocked = false; // 紀錄是否已經解鎖過手機音效
 
-    <div class="track-list" id="trackList">
-        <div style="text-align: center; color: #94a3b8;">載入雲端資料中...</div>
-    </div>
+    // 🔓 破解手機靜音限制的「無聲解鎖」函數
+    function unlockMobileAudio() {
+        if (!isAudioUnlocked) {
+            // 這是一段編碼過的 0.01 秒極短空白音檔
+            let silentAudio = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA");
+            silentAudio.play().catch(e => console.log("解鎖音效被阻擋", e));
+            isAudioUnlocked = true;
+        }
+    }
 
-    <script>
-        // === ☁️ Firebase 完整雲端設定 ===
-        const firebaseConfig = {
-            apiKey: "AIzaSyCaVWMPnGqNcjWVk0JV_-oaSeGcBTpYgHg",
-            authDomain: "id-music-box.firebaseapp.com",
-            projectId: "id-music-box",
-            storageBucket: "id-music-box.firebasestorage.app",
-            messagingSenderId: "426399592540",
-            appId: "1:426399592540:web:349751d6a8360cc7b23699",
-            measurementId: "G-4JBWVTHHLD",
-            databaseURL: "https://id-music-box-default-rtdb.firebaseio.com/"
-        };
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
-
-        const trackList = document.getElementById('trackList');
-        let currentAudioPlayInterval = null;
+    // 📡 監聽 Firebase 資料庫
+    database.ref('performances').orderByChild('timestamp').limitToLast(10).on('value', (snapshot) => {
+        trackList.innerHTML = ''; 
+        let records = [];
+        snapshot.forEach((child) => { records.unshift(child.val()); });
         
-        // 初始化 Web Audio API 環境（用於錄音錄製功能）
-        let audioCtx = null;
-        let audioDestination = null;
-        let mediaRecorder = null;
-        let recordedChunks = [];
+        if(records.length === 0) {
+            trackList.innerHTML = '<div style="text-align: center; color: #94a3b8;">目前還沒有演奏紀錄喔！快去機台玩玩看！</div>';
+            return;
+        }
 
-        // 📡 監聽 Firebase 資料庫，抓取最新的 10 筆資料
-        database.ref('performances').orderByChild('timestamp').limitToLast(10).on('value', (snapshot) => {
-            trackList.innerHTML = ''; 
+        records.forEach((record, index) => {
+            let date = new Date(record.timestamp);
+            let timeString = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
             
-            let records = [];
-            snapshot.forEach((child) => { records.unshift(child.val()); });
-            
-            if(records.length === 0) {
-                trackList.innerHTML = '<div style="text-align: center; color: #94a3b8;">目前還沒有演奏紀錄喔！快去機台玩玩看！</div>';
+            let card = document.createElement('div');
+            card.className = 'track-card';
+            card.innerHTML = `
+                <div class="track-info">
+                    <div class="time">🕒 ${timeString}</div>
+                    <div class="melody">${record.melody.replace(/\?/g, '-')}</div>
+                </div>
+                <div class="btn-group">
+                    <button class="play-btn" onclick="playMobileAudio('${record.melody}')">▶</button>
+                    <button class="download-btn" id="dl-btn-${index}" onclick="downloadSong('${record.melody}', 'dl-btn-${index}', '${timeString}')">💾 下載</button>
+                </div>
+            `;
+            trackList.appendChild(card);
+        });
+    });
+
+    // 📱 1. 一般的手機端播放邏輯
+    function playMobileAudio(melodyStr) {
+        unlockMobileAudio(); // 💥 點擊瞬間立刻解鎖音軌！
+        
+        if(currentAudioPlayInterval) clearInterval(currentAudioPlayInterval);
+        
+        let i = 0;
+        currentAudioPlayInterval = setInterval(() => {
+            if (i >= melodyStr.length) {
+                clearInterval(currentAudioPlayInterval);
                 return;
             }
-
-            records.forEach((record, index) => {
-                let date = new Date(record.timestamp);
-                let timeString = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
-                
-                let card = document.createElement('div');
-                card.className = 'track-card';
-                card.innerHTML = `
-                    <div class="track-info">
-                        <div class="time">🕒 ${timeString}</div>
-                        <div class="melody">${record.melody.replace(/\?/g, '-')}</div>
-                    </div>
-                    <div class="btn-group">
-                        <button class="play-btn" onclick="playMobileAudio('${record.melody}')">▶</button>
-                        <button class="download-btn" id="dl-btn-${index}" onclick="downloadSong('${record.melody}', 'dl-btn-${index}', '${timeString}')">💾 下載</button>
-                    </div>
-                `;
-                trackList.appendChild(card);
-            });
-        });
-
-        // 📱 1. 一般的手機端播放邏輯 (已對齊 BPM 80 = 3000ms)
-        function playMobileAudio(melodyStr) {
-            if(currentAudioPlayInterval) clearInterval(currentAudioPlayInterval);
             
-            let i = 0;
-            currentAudioPlayInterval = setInterval(() => {
-                if (i >= melodyStr.length) {
-                    clearInterval(currentAudioPlayInterval);
-                    return;
-                }
-                
-                let note = melodyStr[i];
-                let measureNum = i + 1; 
-                
-                if (note !== '?') {
-                    let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".wav"; 
-                    let audio = new Audio(fileName);
-                    audio.play().catch(e => alert("手機需允許播放音檔，或檔案路徑錯誤"));
-                }
-                i++; 
-            }, 3000); // 💥 精準對齊 3000 毫秒一小節
-        }
-
-        // 💾 2. 核心功能：動態側錄並下載音檔
-        function downloadSong(melodyStr, buttonId, timeStr) {
-            const btn = document.getElementById(buttonId);
-            if(currentAudioPlayInterval) clearInterval(currentAudioPlayInterval);
+            let note = melodyStr[i];
+            let measureNum = i + 1; 
             
-            // 防止重複點擊
-            btn.disabled = true;
-            btn.innerText = "錄製中..";
-            btn.classList.add("recording");
-
-            // 初始化音訊錄製節點
-            if (!audioCtx) {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (note !== '?') {
+                // ⚠️ 這裡請務必確認 GitHub 上檔案是大寫 .WAV 還是小寫 .wav
+                let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".wav"; 
+                let audio = new Audio(fileName);
+                audio.play().catch(e => console.log("播放失敗，請檢查檔名或大小寫:", fileName));
             }
-            audioDestination = audioCtx.createMediaStreamDestination();
-            mediaRecorder = new MediaRecorder(audioDestination.stream);
-            recordedChunks = [];
+            i++; 
+        }, 3000); 
+    }
 
-            mediaRecorder.ondataavailable = (e) => {
-                if (e.data.size > 0) recordedChunks.push(e.data);
-            };
+    // 💾 2. 核心功能：動態側錄並下載音檔
+    function downloadSong(melodyStr, buttonId, timeStr) {
+        unlockMobileAudio(); // 💥 點擊瞬間立刻解鎖音軌！
+        const btn = document.getElementById(buttonId);
+        if(currentAudioPlayInterval) clearInterval(currentAudioPlayInterval);
+        
+        btn.disabled = true;
+        btn.innerText = "錄製中..";
+        btn.classList.add("recording");
 
-            // 錄音完成後的自動下載觸發
-            mediaRecorder.onstop = () => {
-                const blob = new Blob(recordedChunks, { type: 'audio/webm' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `My_Music_${timeStr.replace(/:/g, '-')}.webm`; // 下載檔名
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                
-                // 恢復按鈕狀態
-                btn.disabled = false;
-                btn.innerText = "💾 下載";
-                btn.classList.remove("recording");
-            };
-
-            // 開始錄音
-            mediaRecorder.start();
-
-            // 開始播放並導向錄音軌
-            let i = 0;
-            currentAudioPlayInterval = setInterval(() => {
-                if (i >= melodyStr.length) {
-                    clearInterval(currentAudioPlayInterval);
-                    setTimeout(() => { mediaRecorder.stop(); }, 500); // 稍微緩衝後停止錄音
-                    return;
-                }
-                
-                let note = melodyStr[i];
-                let measureNum = i + 1; 
-                
-                if (note !== '?') {
-                    let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".wav";
-                    let audio = new Audio(fileName);
-                    
-                    // 💥 關鍵：將音訊同時導向手機喇叭以及內部錄音軌
-                    let source = audioCtx.createMediaElementSource(audio);
-                    source.connect(audioCtx.destination); // 給觀眾聽
-                    source.connect(audioDestination);    // 給錄音軌錄
-                    
-                    audio.play().catch(e => console.log(e));
-                }
-                i++; 
-            }, 3000); // 對齊 3 秒鐘
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         }
-    </script>
-</body>
-</html>
+        if (audioCtx.state === 'suspended') audioCtx.resume(); // 喚醒音訊系統
+
+        audioDestination = audioCtx.createMediaStreamDestination();
+        mediaRecorder = new MediaRecorder(audioDestination.stream);
+        recordedChunks = [];
+
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) recordedChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = () => {
+            const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `My_Music_${timeStr.replace(/:/g, '-')}.webm`; 
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            btn.disabled = false;
+            btn.innerText = "💾 下載";
+            btn.classList.remove("recording");
+        };
+
+        mediaRecorder.start();
+
+        let i = 0;
+        currentAudioPlayInterval = setInterval(() => {
+            if (i >= melodyStr.length) {
+                clearInterval(currentAudioPlayInterval);
+                setTimeout(() => { mediaRecorder.stop(); }, 500); 
+                return;
+            }
+            
+            let note = melodyStr[i];
+            let measureNum = i + 1; 
+            
+            if (note !== '?') {
+                let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".wav";
+                let audio = new Audio(fileName);
+                audio.crossOrigin = "anonymous"; // 允許跨網域音訊處理
+                
+                let source = audioCtx.createMediaElementSource(audio);
+                source.connect(audioCtx.destination); 
+                source.connect(audioDestination);    
+                
+                audio.play().catch(e => console.log(e));
+            }
+            i++; 
+        }, 3000); 
+    }
+</script>
