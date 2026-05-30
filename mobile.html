@@ -112,7 +112,7 @@
                 let measureNum = i + 1; 
                 
                 if (note !== '?') {
-                    let fileName = note + "_" + measureNum + ".m4a"; 
+                    let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".WAV"; 
                     let audio = new Audio(fileName);
                     audio.play().catch(e => alert("手機需允許播放音檔，或檔案路徑錯誤"));
                 }
@@ -175,7 +175,7 @@
                 let measureNum = i + 1; 
                 
                 if (note !== '?') {
-                    let fileName = note + "_" + measureNum + ".m4a"; 
+                    let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".WAV";
                     let audio = new Audio(fileName);
                     
                     // 💥 關鍵：將音訊同時導向手機喇叭以及內部錄音軌
