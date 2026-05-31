@@ -41,162 +41,180 @@
         <div style="text-align: center; color: #94a3b8;">載入雲端資料中...</div>
     </div>
 
-
     <script>
-    // === ☁️ Firebase 完整雲端設定 ===
-    const firebaseConfig = {
-        apiKey: "AIzaSyCaVWMPnGqNcjWVk0JV_-oaSeGcBTpYgHg",
-        authDomain: "id-music-box.firebaseapp.com",
-        projectId: "id-music-box",
-        storageBucket: "id-music-box.firebasestorage.app",
-        messagingSenderId: "426399592540",
-        appId: "1:426399592540:web:349751d6a8360cc7b23699",
-        measurementId: "G-4JBWVTHHLD",
-        databaseURL: "https://id-music-box-default-rtdb.firebaseio.com/"
-    };
-    firebase.initializeApp(firebaseConfig);
-    const database = firebase.database();
+        // === ☁️ Firebase 完整雲端設定 ===
+        const firebaseConfig = {
+            apiKey: "AIzaSyCaVWMPnGqNcjWVk0JV_-oaSeGcBTpYgHg",
+            authDomain: "id-music-box.firebaseapp.com",
+            projectId: "id-music-box",
+            storageBucket: "id-music-box.firebasestorage.app",
+            messagingSenderId: "426399592540",
+            appId: "1:426399592540:web:349751d6a8360cc7b23699",
+            measurementId: "G-4JBWVTHHLD",
+            databaseURL: "https://id-music-box-default-rtdb.firebaseio.com/"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
 
-    const trackList = document.getElementById('trackList');
-    let currentAudioPlayInterval = null;
-    
-    // 初始化 Web Audio API 環境
-    let audioCtx = null;
-    let audioDestination = null;
-    let mediaRecorder = null;
-    let recordedChunks = [];
-    let isAudioUnlocked = false; // 紀錄是否已經解鎖過手機音效
-
-    // 🔓 破解手機靜音限制的「無聲解鎖」函數
-    function unlockMobileAudio() {
-        if (!isAudioUnlocked) {
-            // 這是一段編碼過的 0.01 秒極短空白音檔
-            let silentAudio = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA");
-            silentAudio.play().catch(e => console.log("解鎖音效被阻擋", e));
-            isAudioUnlocked = true;
-        }
-    }
-
-    // 📡 監聽 Firebase 資料庫
-    database.ref('performances').orderByChild('timestamp').limitToLast(10).on('value', (snapshot) => {
-        trackList.innerHTML = ''; 
-        let records = [];
-        snapshot.forEach((child) => { records.unshift(child.val()); });
+        const trackList = document.getElementById('trackList');
+        let currentAudioPlayInterval = null;
         
-        if(records.length === 0) {
-            trackList.innerHTML = '<div style="text-align: center; color: #94a3b8;">目前還沒有演奏紀錄喔！快去機台玩玩看！</div>';
-            return;
+        // 🌟 核心修復：宣告「全域共用」的實體播放器，徹底解決手機斷音問題
+        const globalPlayer = new Audio();
+        const globalRecorder = new Audio();
+        globalRecorder.crossOrigin = "anonymous";
+        
+        let audioCtx = null;
+        let audioDestination = null;
+        let mediaRecorder = null;
+        let recorderSourceNode = null;
+        let recordedChunks = [];
+        let isAudioUnlocked = false; 
+
+        // 📝 翻譯字典：將英文字母轉為宮商角徵羽
+        function translateToChineseScale(melodyStr) {
+            const map = { 'C': '宮', 'D': '商', 'E': '角', 'G': '徵', 'A': '羽', '?': '-' };
+            return melodyStr.split('').map(char => map[char] || char).join('');
         }
 
-        records.forEach((record, index) => {
-            let date = new Date(record.timestamp);
-            let timeString = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+        // 🔓 破解手機靜音：點擊瞬間啟動共用播放器
+        function unlockMobileAudio() {
+            if (!isAudioUnlocked) {
+                let silentSrc = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+                // 讓兩個播放器先播放 0.01 秒的空白音，取得手機的合法播放權限
+                globalPlayer.src = silentSrc;
+                globalPlayer.play().catch(e => {});
+                globalRecorder.src = silentSrc;
+                globalRecorder.play().catch(e => {});
+                isAudioUnlocked = true;
+            }
+        }
+
+        // 📡 監聽 Firebase 資料庫
+        database.ref('performances').orderByChild('timestamp').limitToLast(10).on('value', (snapshot) => {
+            trackList.innerHTML = ''; 
+            let records = [];
+            snapshot.forEach((child) => { records.unshift(child.val()); });
             
-            let card = document.createElement('div');
-            card.className = 'track-card';
-            card.innerHTML = `
-                <div class="track-info">
-                    <div class="time">🕒 ${timeString}</div>
-                    <div class="melody">${record.melody.replace(/\?/g, '-')}</div>
-                </div>
-                <div class="btn-group">
-                    <button class="play-btn" onclick="playMobileAudio('${record.melody}')">▶</button>
-                    <button class="download-btn" id="dl-btn-${index}" onclick="downloadSong('${record.melody}', 'dl-btn-${index}', '${timeString}')">💾 下載</button>
-                </div>
-            `;
-            trackList.appendChild(card);
+            if(records.length === 0) {
+                trackList.innerHTML = '<div style="text-align: center; color: #94a3b8;">目前還沒有演奏紀錄喔！快去機台玩玩看！</div>';
+                return;
+            }
+
+            records.forEach((record, index) => {
+                let date = new Date(record.timestamp);
+                let timeString = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+                
+                // 將拿到的 A, C, D 翻譯成 宮商角徵羽 來顯示
+                let chineseMelody = translateToChineseScale(record.melody);
+                
+                let card = document.createElement('div');
+                card.className = 'track-card';
+                card.innerHTML = `
+                    <div class="track-info">
+                        <div class="time">🕒 ${timeString}</div>
+                        <div class="melody">${chineseMelody}</div>
+                    </div>
+                    <div class="btn-group">
+                        <button class="play-btn" onclick="playMobileAudio('${record.melody}')">▶</button>
+                        <button class="download-btn" id="dl-btn-${index}" onclick="downloadSong('${record.melody}', 'dl-btn-${index}', '${timeString}')">💾 下載</button>
+                    </div>
+                `;
+                trackList.appendChild(card);
+            });
         });
-    });
 
-    // 📱 1. 一般的手機端播放邏輯
-    function playMobileAudio(melodyStr) {
-        unlockMobileAudio(); // 💥 點擊瞬間立刻解鎖音軌！
-        
-        if(currentAudioPlayInterval) clearInterval(currentAudioPlayInterval);
-        
-        let i = 0;
-        currentAudioPlayInterval = setInterval(() => {
-            if (i >= melodyStr.length) {
-                clearInterval(currentAudioPlayInterval);
-                return;
-            }
+        // 📱 1. 一般的手機端播放邏輯 (修復版)
+        function playMobileAudio(melodyStr) {
+            unlockMobileAudio(); 
+            if(currentAudioPlayInterval) clearInterval(currentAudioPlayInterval);
             
-            let note = melodyStr[i];
-            let measureNum = i + 1; 
-            
-            if (note !== '?') {
-                // ⚠️ 這裡請務必確認 GitHub 上檔案是大寫 .WAV 還是小寫 .wav
-                let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".wav"; 
-                let audio = new Audio(fileName);
-                audio.play().catch(e => console.log("播放失敗，請檢查檔名或大小寫:", fileName));
-            }
-            i++; 
-        }, 3000); 
-    }
-
-    // 💾 2. 核心功能：動態側錄並下載音檔
-    function downloadSong(melodyStr, buttonId, timeStr) {
-        unlockMobileAudio(); // 💥 點擊瞬間立刻解鎖音軌！
-        const btn = document.getElementById(buttonId);
-        if(currentAudioPlayInterval) clearInterval(currentAudioPlayInterval);
-        
-        btn.disabled = true;
-        btn.innerText = "錄製中..";
-        btn.classList.add("recording");
-
-        if (!audioCtx) {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            let i = 0;
+            currentAudioPlayInterval = setInterval(() => {
+                if (i >= melodyStr.length) {
+                    clearInterval(currentAudioPlayInterval);
+                    return;
+                }
+                
+                let note = melodyStr[i];
+                let measureNum = i + 1; 
+                
+                if (note !== '?') {
+                    let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".WAV"; 
+                    // 💥 關鍵：不再創造 new Audio，而是直接替換舊卡帶的音檔！
+                    globalPlayer.src = fileName;
+                    globalPlayer.play().catch(e => console.log("播放失敗:", fileName));
+                }
+                i++; 
+            }, 3000); 
         }
-        if (audioCtx.state === 'suspended') audioCtx.resume(); // 喚醒音訊系統
 
-        audioDestination = audioCtx.createMediaStreamDestination();
-        mediaRecorder = new MediaRecorder(audioDestination.stream);
-        recordedChunks = [];
-
-        mediaRecorder.ondataavailable = (e) => {
-            if (e.data.size > 0) recordedChunks.push(e.data);
-        };
-
-        mediaRecorder.onstop = () => {
-            const blob = new Blob(recordedChunks, { type: 'audio/webm' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `My_Music_${timeStr.replace(/:/g, '-')}.webm`; 
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+        // 💾 2. 動態側錄並下載音檔 (修復版)
+        function downloadSong(melodyStr, buttonId, timeStr) {
+            unlockMobileAudio(); 
+            const btn = document.getElementById(buttonId);
+            if(currentAudioPlayInterval) clearInterval(currentAudioPlayInterval);
             
-            btn.disabled = false;
-            btn.innerText = "💾 下載";
-            btn.classList.remove("recording");
-        };
+            btn.disabled = true;
+            btn.innerText = "錄製中..";
+            btn.classList.add("recording");
 
-        mediaRecorder.start();
-
-        let i = 0;
-        currentAudioPlayInterval = setInterval(() => {
-            if (i >= melodyStr.length) {
-                clearInterval(currentAudioPlayInterval);
-                setTimeout(() => { mediaRecorder.stop(); }, 500); 
-                return;
-            }
-            
-            let note = melodyStr[i];
-            let measureNum = i + 1; 
-            
-            if (note !== '?') {
-                let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".wav";
-                let audio = new Audio(fileName);
-                audio.crossOrigin = "anonymous"; // 允許跨網域音訊處理
+            // 確保錄音環境只被建立一次
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                audioDestination = audioCtx.createMediaStreamDestination();
                 
-                let source = audioCtx.createMediaElementSource(audio);
-                source.connect(audioCtx.destination); 
-                source.connect(audioDestination);    
-                
-                audio.play().catch(e => console.log(e));
+                // 將共用錄音播放器的聲音接上管線
+                recorderSourceNode = audioCtx.createMediaElementSource(globalRecorder);
+                recorderSourceNode.connect(audioCtx.destination); // 喇叭
+                recorderSourceNode.connect(audioDestination);     // 側錄器
             }
-            i++; 
-        }, 3000); 
-    }
-</script>
+            if (audioCtx.state === 'suspended') audioCtx.resume(); 
+
+            mediaRecorder = new MediaRecorder(audioDestination.stream);
+            recordedChunks = [];
+
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) recordedChunks.push(e.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `My_Music_${timeStr.replace(/:/g, '-')}.webm`; 
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                
+                btn.disabled = false;
+                btn.innerText = "💾 下載";
+                btn.classList.remove("recording");
+            };
+
+            mediaRecorder.start();
+
+            let i = 0;
+            currentAudioPlayInterval = setInterval(() => {
+                if (i >= melodyStr.length) {
+                    clearInterval(currentAudioPlayInterval);
+                    setTimeout(() => { mediaRecorder.stop(); }, 500); 
+                    return;
+                }
+                
+                let note = melodyStr[i];
+                let measureNum = i + 1; 
+                
+                if (note !== '?') {
+                    let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".WAV";
+                    // 💥 關鍵：換上新的音檔並播放，錄音管線已接好會自動側錄
+                    globalRecorder.src = fileName;
+                    globalRecorder.play().catch(e => console.log(e));
+                }
+                i++; 
+            }, 3000); 
+        }
+    </script>
+</body>
+</html>
