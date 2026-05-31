@@ -6,6 +6,7 @@
     <title>互動音樂機台 - 數位紀念歌單</title>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    
     <style>
         body { background-color: #0f172a; color: #f8fafc; font-family: "Microsoft JhengHei", sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         .header { text-align: center; margin-bottom: 20px; }
@@ -124,7 +125,7 @@
             });
         });
 
-        // 📱 1. 一般的手機端播放邏輯 (修復版)
+        // 📱 1. 一般的手機端播放邏輯
         function playMobileAudio(melodyStr) {
             unlockMobileAudio(); 
             if(currentAudioPlayInterval) clearInterval(currentAudioPlayInterval);
@@ -140,8 +141,8 @@
                 let measureNum = i + 1; 
                 
                 if (note !== '?') {
-                    let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".WAV"; 
-                    // 💥 關鍵：不再創造 new Audio，而是直接替換舊卡帶的音檔！
+                    // 💥 已經幫你改為小寫 .wav
+                    let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".wav"; 
                     globalPlayer.src = fileName;
                     globalPlayer.play().catch(e => console.log("播放失敗:", fileName));
                 }
@@ -149,7 +150,7 @@
             }, 3000); 
         }
 
-        // 💾 2. 動態側錄並下載音檔 (修復版)
+        // 💾 2. 動態側錄並下載音檔
         function downloadSong(melodyStr, buttonId, timeStr) {
             unlockMobileAudio(); 
             const btn = document.getElementById(buttonId);
@@ -159,15 +160,13 @@
             btn.innerText = "錄製中..";
             btn.classList.add("recording");
 
-            // 確保錄音環境只被建立一次
             if (!audioCtx) {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 audioDestination = audioCtx.createMediaStreamDestination();
                 
-                // 將共用錄音播放器的聲音接上管線
                 recorderSourceNode = audioCtx.createMediaElementSource(globalRecorder);
-                recorderSourceNode.connect(audioCtx.destination); // 喇叭
-                recorderSourceNode.connect(audioDestination);     // 側錄器
+                recorderSourceNode.connect(audioCtx.destination); 
+                recorderSourceNode.connect(audioDestination);     
             }
             if (audioCtx.state === 'suspended') audioCtx.resume(); 
 
@@ -207,8 +206,8 @@
                 let measureNum = i + 1; 
                 
                 if (note !== '?') {
-                    let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".WAV";
-                    // 💥 關鍵：換上新的音檔並播放，錄音管線已接好會自動側錄
+                    // 💥 已經幫你改為小寫 .wav
+                    let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".wav";
                     globalRecorder.src = fileName;
                     globalRecorder.play().catch(e => console.log(e));
                 }
