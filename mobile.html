@@ -139,13 +139,18 @@
                 
                 let note = melodyStr[i];
                 let measureNum = i + 1; 
+                let fileName = "";
                 
-                if (note !== '?') {
-                    // 💥 已經幫你改為小寫 .wav
-                    let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".wav"; 
-                    globalPlayer.src = fileName;
-                    globalPlayer.play().catch(e => console.log("播放失敗:", fileName));
+                // 💥 遇到問號，直接呼叫單一檔案 rest.wav
+                if (note === '?') {
+                    fileName = "rest.wav"; 
+                } else {
+                    fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".wav"; 
                 }
+
+                globalPlayer.src = fileName;
+                globalPlayer.play().catch(e => console.log("播放失敗:", fileName));
+                
                 i++; 
             }, 3000); 
         }
@@ -194,6 +199,8 @@
 
             mediaRecorder.start();
 
+            // ... (前面的 mediaRecorder.start() 等等都不用動) ...
+            
             let i = 0;
             currentAudioPlayInterval = setInterval(() => {
                 if (i >= melodyStr.length) {
@@ -204,13 +211,18 @@
                 
                 let note = melodyStr[i];
                 let measureNum = i + 1; 
+                let fileName = "";
                 
-                if (note !== '?') {
-                    // 💥 已經幫你改為小寫 .wav
-                    let fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".wav";
-                    globalRecorder.src = fileName;
-                    globalRecorder.play().catch(e => console.log(e));
+                // 💥 錄音版的判斷邏輯也同步更新
+                if (note === '?') {
+                    fileName = "rest.wav";
+                } else {
+                    fileName = note + "-" + measureNum.toString().padStart(2, '0') + ".wav";
                 }
+
+                globalRecorder.src = fileName;
+                globalRecorder.play().catch(e => console.log(e));
+                
                 i++; 
             }, 3000); 
         }
